@@ -94,6 +94,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(true){thread_yield();}
   return -1;
 }
 
@@ -438,6 +439,7 @@ setup_stack (void **esp, char **saveptr, char *filename)
   uint8_t *kpage;
   bool success = false;
   int i, argc = 0;
+  int byte_size = 0;
   int arg_size = 2;
   char* token;
   char** argv = malloc(2*sizeof(char*));    //default argv size = 2, so multiplied by 2
@@ -460,13 +462,51 @@ setup_stack (void **esp, char **saveptr, char *filename)
           }
         }
 
-        for(int i = argc; i >= 0; i--){   //copy into argv
+        for(int i = argc-1; i >= 0; i--){   //push arguments
           *esp -= strlen(tokens[i])+1;
+          byte_size += strlen(tokens[i])+1;
           argv[i] = *esp;
           memcpy (*esp, tokens[i], strlen(tokens[i])+1); 
         }
-        //next should be memory allign(enter escape character before)
 
+        // add null 
+        argv[argc] = 0;
+
+        //word allign by size of i
+        int i = (size_t)*esp %4;
+        *esp -= i;
+        byte_size += i;
+        memcpy(*esp, &argv[argc], i);
+
+        //push addresses
+        for(int i = argc; i >= 0; i--){
+          *esp -= sizeof(char*);
+          byte_size += sizeof(char*);
+          memcpy(*esp, &argv[i], sizeof(char*));
+        }
+
+        token = *esp;
+        //push argv
+        *esp -= sizeof(char**);
+        byte_size += sizeof(char**);
+        memcpy(*esp, &token, sizeof(char**));
+
+        //push argc
+        *esp -= sizeof(int);
+        byte_size += sizeof(int);
+        memcpy(*esp, argc, sizeof(int));
+
+        //push fake return
+        *esp -= sizeof(void*);
+        byte_size += sizeof(void*);
+        memcpy(*esp, &argv[argc], sizeof(void*));
+
+        free(argv);
+        free(tokens);
+        
+        //debugging
+        hex_dump(0, *esp, byte_size, 1); 
+        hex_dump((int)*esp+byte_size, *esp, byte_size, 1);
       }
       else
         palloc_free_page (kpage);
