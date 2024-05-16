@@ -40,6 +40,7 @@ process_execute (const char *file_name)
 
   char *saveptr, *f_name;
   f_name = strtok_r(file_name, " ", &saveptr );
+  
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (f_name, PRI_DEFAULT, start_process, fn_copy);
@@ -59,6 +60,7 @@ start_process (void *file_name_)
   char *saveptr;
 
   file_name = strtok_r ((char*)file_name, " ", &saveptr);
+
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -312,6 +314,80 @@ load (const char *file_name, void (**eip) (void), void **esp, char **saveptr)
   if (!setup_stack (esp, saveptr, file_name))
     goto done;
 
+    int argc = 0;
+  int byte_size = 0;
+  int arg_size = 2;
+  char* token;
+  char** argv = malloc(2*sizeof(char*));    //default argv size = 2, so multiplied by 2
+  char** tokens = malloc(2*sizeof(char*));
+
+  for (token = file_name; token != NULL; token = strtok_r(NULL, " ", saveptr)){   //get all arguments and save in tokens
+          tokens[argc] = token;
+          argc++;
+          if (argc >= arg_size) {   //if arg count > 2, double the size
+            arg_size *= 2;
+            tokens = realloc (tokens, arg_size*sizeof(char*));
+            argv = realloc (argv, arg_size*sizeof(char*));
+          }
+        }
+
+        
+        for(int i = argc-1; i >= 0; i--){   //push arguments
+          *esp -= strlen(tokens[i])+1;
+          byte_size += strlen(tokens[i])+1;
+          argv[i] = *esp;
+          memcpy (*esp, tokens[i], strlen(tokens[i])+1); 
+        }
+
+
+        // add null 
+        argv[argc] = 0;
+
+
+        //word allign by size of i
+        i = (size_t) *esp % 4;
+        if (i){
+          *esp -= i;
+          byte_size += i;
+          memcpy(*esp, &argv[argc], i );
+        }
+
+
+        //push addresses
+        for(int i = argc; i >= 0; i--){
+          *esp -= sizeof(char*);
+          byte_size += sizeof(char*);
+          memcpy(*esp, &argv[i], sizeof(char*));
+        }
+
+
+        token = *esp;
+        //push argv
+        *esp -= sizeof(char**);
+        byte_size += sizeof(char**);
+        memcpy(*esp, &token, sizeof(char**));
+
+
+        //push argc
+        *esp -= sizeof(int);
+        byte_size += sizeof(int);
+        memcpy(*esp, &argc, sizeof(int));
+
+
+        //push fake return
+        *esp -= sizeof(void*);
+        byte_size += sizeof(void*);
+        memcpy(*esp, &argv[argc], sizeof(void*));
+
+
+        free(argv);
+        free(tokens);
+        
+        //debugging
+        /*hex_dump(0, *esp, byte_size, 1); 
+        hex_dump((int)*esp+byte_size, *esp, byte_size, 1);*/
+  
+
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
@@ -319,11 +395,87 @@ load (const char *file_name, void (**eip) (void), void **esp, char **saveptr)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if(success)
+    file_deny_write(file);
   return success;
 }
 
 /* load() helpers. */
+
+void push_into_stack(void **esp, char **saveptr, const char *filename){
+  int i, argc = 0;
+  int byte_size = 0;
+  int arg_size = 2;
+  char* token;
+  char** argv = malloc(2*sizeof(char*));    //default argv size = 2, so multiplied by 2
+  char** tokens = malloc(2*sizeof(char*));
+
+  for (token = filename; token != NULL; token = strtok_r(NULL, " ", saveptr)){   //get all arguments and save in tokens
+          tokens[argc] = token;
+          argc++;
+          if (argc >= arg_size) {   //if arg count > 2, double the size
+            arg_size *= 2;
+            tokens = realloc (tokens, arg_size*sizeof(char*));
+            argv = realloc (argv, arg_size*sizeof(char*));
+          }
+        }
+
+        
+        for(int i = argc-1; i >= 0; i--){   //push arguments
+          *esp -= strlen(tokens[i])+1;
+          byte_size += strlen(tokens[i])+1;
+          argv[i] = *esp;
+          memcpy (*esp, tokens[i], strlen(tokens[i])+1); 
+        }
+
+
+        // add null 
+        argv[argc] = 0;
+
+
+        //word allign by size of i
+        i = (size_t) *esp % 4;
+        if (i){
+          *esp -= i;
+          byte_size += i;
+          memcpy(*esp, &argv[argc], i );
+        }
+
+
+        //push addresses
+        for(int i = argc; i >= 0; i--){
+          *esp -= sizeof(char*);
+          byte_size += sizeof(char*);
+          memcpy(*esp, &argv[i], sizeof(char*));
+        }
+
+
+        token = *esp;
+        //push argv
+        *esp -= sizeof(char**);
+        byte_size += sizeof(char**);
+        memcpy(*esp, &token, sizeof(char**));
+
+
+        //push argc
+        *esp -= sizeof(int);
+        byte_size += sizeof(int);
+        memcpy(*esp, &argc, sizeof(int));
+
+
+        //push fake return
+        *esp -= sizeof(void*);
+        byte_size += sizeof(void*);
+        memcpy(*esp, &argv[argc], sizeof(void*));
+
+
+        free(argv);
+        free(tokens);
+        
+        //debugging
+        /*hex_dump(0, *esp, byte_size, 1); 
+        hex_dump((int)*esp+byte_size, *esp, byte_size, 1);*/
+}
 
 static bool install_page (void *upage, void *kpage, bool writable);
 
@@ -434,16 +586,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, char **saveptr, char *filename) 
+setup_stack (void **esp, char **saveptr, const char *filename) 
 {
   uint8_t *kpage;
   bool success = false;
-  int i, argc = 0;
-  int byte_size = 0;
-  int arg_size = 2;
-  char* token;
-  char** argv = malloc(2*sizeof(char*));    //default argv size = 2, so multiplied by 2
-  char** tokens = malloc(2*sizeof(char*));
+  
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
@@ -451,62 +598,7 @@ setup_stack (void **esp, char **saveptr, char *filename)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success){
         *esp = PHYS_BASE;
-
-        for (token = filename; token != NULL; token = strtok_r(NULL, " ", saveptr)){   //get all arguments and save in tokens
-          tokens[argc] = token;
-          argc++;
-          if (argc >= arg_size) {   //if arg count > 2, double the size
-            arg_size *= 2;
-            tokens = realloc (tokens, arg_size*sizeof(char*));
-            argv = realloc (argv, arg_size*sizeof(char*));
-          }
-        }
-
-        for(int i = argc-1; i >= 0; i--){   //push arguments
-          *esp -= strlen(tokens[i])+1;
-          byte_size += strlen(tokens[i])+1;
-          argv[i] = *esp;
-          memcpy (*esp, tokens[i], strlen(tokens[i])+1); 
-        }
-
-        // add null 
-        argv[argc] = 0;
-
-        //word allign by size of i
-        int i = (size_t)*esp %4;
-        *esp -= i;
-        byte_size += i;
-        memcpy(*esp, &argv[argc], i);
-
-        //push addresses
-        for(int i = argc; i >= 0; i--){
-          *esp -= sizeof(char*);
-          byte_size += sizeof(char*);
-          memcpy(*esp, &argv[i], sizeof(char*));
-        }
-
-        token = *esp;
-        //push argv
-        *esp -= sizeof(char**);
-        byte_size += sizeof(char**);
-        memcpy(*esp, &token, sizeof(char**));
-
-        //push argc
-        *esp -= sizeof(int);
-        byte_size += sizeof(int);
-        memcpy(*esp, argc, sizeof(int));
-
-        //push fake return
-        *esp -= sizeof(void*);
-        byte_size += sizeof(void*);
-        memcpy(*esp, &argv[argc], sizeof(void*));
-
-        free(argv);
-        free(tokens);
-        
-        //debugging
-        hex_dump(0, *esp, byte_size, 1); 
-        hex_dump((int)*esp+byte_size, *esp, byte_size, 1);
+        //push_into_stack(esp,&saveptr,filename);
       }
       else
         palloc_free_page (kpage);

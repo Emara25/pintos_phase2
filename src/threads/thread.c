@@ -464,6 +464,19 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
+  sema_init(&t->wait_for_child_exit,0);
+  sema_init(&t->sync_between_child_parent,0);
+  list_init(&t->children);
+  list_init(&t->list_of_open_file);
+  t->tid_waiting_for = -1;
+  t->child_status = -1;
+  t->child_success_creation = 0;
+  t->exit_status = 0;
+  if(t != initial_thread) {
+      t->parent = thread_current();
+  }
+  else t->parent = NULL;
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

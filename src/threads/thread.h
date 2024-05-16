@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -93,6 +94,20 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    // added Phase Two ______________________
+   struct thread *parent;
+   struct list children;
+   struct list_elem child_elem;                /* list_element for children list*/
+   bool child_success_creation;                /* determine if child made it and loaded or not */
+   struct semaphore sync_between_child_parent; /* make parent wait for child during load */
+   struct semaphore wait_for_child_exit;       /* for the parent, handling waiting for the child to exit  */
+   tid_t tid_waiting_for;                      /* tid for the process we are waiting for, just wish it's in the children list*/
+   int child_status;                           /* status of child when finished */
+   int exit_status;                            /* status when thread exits */
+   struct file *executable_file;               /* executable files in disk for load */
+   struct list list_of_open_file;                  /* list of user files */
+   // end of added Phase Two ____________________
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -101,6 +116,14 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+/* struct for opened files list */
+struct open_file
+{
+   struct file *file;
+   struct list_elem elem;
+   int fd; /* file descriptor */
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
