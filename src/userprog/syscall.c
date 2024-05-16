@@ -4,8 +4,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "devices/shutdown.h" // halt
-#include "threads/init.h"  // halt
-#include "threads/vaddr.h" // exit
+#include "threads/init.h"     // halt
+#include "threads/vaddr.h"    // exit
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "lib/kernel/list.h"
@@ -62,11 +62,14 @@ syscall_handler(struct intr_frame *f UNUSED)
   }
   case SYS_WAIT:
   {
+    // TODO handle wait.
     wrapper_sys_wait(f);
     break;
   }
   case SYS_CREATE:
   {
+    // TODO handle multiple openings of the same file
+    // using locks
     wrapper_sys_create(f);
     break;
   }
@@ -109,10 +112,9 @@ syscall_handler(struct intr_frame *f UNUSED)
   {
     wrapper_sys_close(f);
     break;
-  } 
+  }
   default:
   {
-
   }
   }
 }
@@ -126,15 +128,15 @@ void sys_halt()
 
 void sys_exit(int status)
 {
-   char * name = thread_current()->name;
-    char * save_ptr;
-    char * executable = strtok_r (name, " ", &save_ptr);
-    thread_current()->exit_status = status;
-    printf("%s: exit(%d)\n",executable,status);
-    thread_exit();
+  char *name = thread_current()->name;
+  char *save_ptr;
+  char *executable = strtok_r(name, " ", &save_ptr);
+  thread_current()->exit_status = status;
+  printf("%s: exit(%d)\n", executable, status);
+  thread_exit();
 }
 
-tid_t  sys_wait(tid_t tid)
+tid_t sys_wait(tid_t tid)
 {
   return process_wait(tid);
 }
@@ -175,7 +177,7 @@ int sys_open(const char *file)
     int file_fd = curent_fd;
     user_file->fd = curent_fd;
     user_file->file = opened_file;
-    
+
     lock_acquire(&required_lock);
     curent_fd++;
     lock_release(&required_lock);
@@ -188,7 +190,7 @@ int sys_open(const char *file)
 
 struct open_file *sys_file(int fd)
 {
-  struct open_file *ans=NULL;
+  struct open_file *ans = NULL;
   struct list *list_of_files = &(thread_current()->list_of_open_file);
   for (struct list_elem *cur = list_begin(list_of_files); cur != list_end(list_of_files); cur = list_next(cur))
   {
@@ -205,7 +207,7 @@ int sys_read(int fd, void *buffer, unsigned size)
 {
   int res = size;
   if (fd == 0)
-  { 
+  {
     while (size--)
     {
       lock_acquire(&required_lock);
@@ -384,7 +386,7 @@ void wrapper_sys_read(struct intr_frame *f)
   int fd = (int)(*((int *)f->esp + 1));
   char *buffer = (char *)(*((int *)f->esp + 2));
   if (fd == 1 || !valid_in_virtual_memory(buffer))
-  { 
+  {
     sys_exit(-1);
   }
   unsigned size = *((unsigned *)f->esp + 3);
@@ -407,7 +409,7 @@ void wrapper_sys_close(struct intr_frame *f)
 {
   int fd = (int)(*((int *)f->esp + 1));
   if (fd < 2)
-  { 
+  {
     sys_exit(-1);
   }
   f->eax = sys_close(fd);
