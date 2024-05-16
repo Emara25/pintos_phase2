@@ -43,10 +43,16 @@ tid_t process_execute(const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create(f_name, PRI_DEFAULT, start_process, fn_copy);
-  // TODO link child & parent
+
+  sema_down(&thread_current()->sync_between_child_parent);
+
   if (tid == TID_ERROR)
     palloc_free_page(fn_copy);
-  return tid;
+
+  if (thread_current()->child_success_creation)
+    return tid;
+
+  return TID_ERROR;
 }
 
 /* A thread function that loads a user process and starts it
@@ -67,11 +73,26 @@ start_process(void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load(file_name, &if_.eip, &if_.esp, &saveptr);
+  struct thread *parent = thread_current()->parent;
+
+  if (success)
+  { // Child is loaded successfully
+
+    struct list *children = &parent->children;
+    struct thread *child = thread_current();
+    list_push_back(children, &child->child_elem);            // Push current thread in parent children list
+    parent->child_success_creation = 1;                      // Flag parent that the child is loaded successfully
+    sema_up(&parent->sync_between_child_parent);             // Wake up parent
+    sema_down(&thread_current()->sync_between_child_parent); // sleep until parent wakes up me
+  }
+  else
+  {                                              // Error loading file
+    parent->child_success_creation = 0;          // Flag parent that the child is not loaded successfully
+    sema_up(&parent->sync_between_child_parent); // Wake up parent
+  }
 
   /* If load failed, quit. */
   palloc_free_page(file_name);
-  if (!success)
-    thread_exit();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -97,7 +118,7 @@ int process_wait(tid_t tid)
 
   thread_current()->tid_waiting_for = tid;
   struct thread *child = return_child_with_tid(tid); // Get child with given tid_t
-                                                     // validddd
+
   if (child != NULL)
   {
     // Remove child from children list
