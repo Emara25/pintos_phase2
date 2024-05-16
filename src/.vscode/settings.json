@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.inc": "c",
+        "atomic": "c",
+        "condition_variable": "c",
+        "mutex": "c"
+    }
+}
